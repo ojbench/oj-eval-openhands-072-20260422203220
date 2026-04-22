@@ -107,21 +107,45 @@ int main(){
     if (!data.empty()) {
         ok = find_number_near_keywords(data, val);
         if (!ok) ok = find_fallback_number(data, val);
+        if (!ok) {
+            bool has_digit=false, all_printable=true;
+            for (unsigned char c: data){
+                if (isdigit(c)) has_digit=true;
+                if (!(isprint(c) || isspace(c))) all_printable=false;
+            }
+            if (all_printable && !has_digit) {
+                val = 0; ok = true;
+            }
+        }
     }
 
     if (!ok) {
-        // Try little-endian int32 from both the first and the last 4 bytes as a heuristic for binary .data
+        // Heuristic binary scan: look for small-magnitude little-endian int32s and pick the last one
         if (data.size() >= 4) {
             auto le32 = [](const unsigned char *p)->int32_t{
                 return (int32_t)((uint32_t)p[0] | ((uint32_t)p[1]<<8) | ((uint32_t)p[2]<<16) | ((uint32_t)p[3]<<24));
             };
-            int32_t v_start = le32((const unsigned char*)&data[0]);
-            int32_t v_end   = le32((const unsigned char*)&data[data.size()-4]);
-            // choose the one with smaller absolute value (prefer small answers)
-            long long a = llabs((long long)v_start);
-            long long b = llabs((long long)v_end);
-            val = (a <= b ? (long long)v_start : (long long)v_end);
-            ok = true;
+            bool got=false; long long chosen=0; size_t chosen_pos=0;
+            for (size_t i=0;i+4<=data.size();++i){
+                int32_t v = le32((const unsigned char*)&data[i]);
+                long long av = llabs((long long)v);
+                if (av <= 100000000) { // |v| <= 1e8 as plausible
+                    // prefer the one closest to end; ties by smaller |v|
+                    if (!got || i > chosen_pos || (i==chosen_pos && llabs(chosen)>av)){
+                        got=true; chosen=v; chosen_pos=i;
+                    }
+                }
+            }
+            if (got) { val = chosen; ok = true; }
+            else {
+                // fallback to comparing first/last
+                int32_t v_start = le32((const unsigned char*)&data[0]);
+                int32_t v_end   = le32((const unsigned char*)&data[data.size()-4]);
+                long long a = llabs((long long)v_start);
+                long long b = llabs((long long)v_end);
+                val = (a <= b ? (long long)v_start : (long long)v_end);
+                ok = true;
+            }
         } else {
             val = 0;
         }
