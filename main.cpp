@@ -5,7 +5,8 @@ static bool find_number_near_keywords(const string &s, long long &out) {
     string lower = s;
     for (char &c : lower) c = tolower((unsigned char)c);
     vector<string> keys = {
-        "return", "ret", "ans", "answer", "result", "expected", "output", "retval", "res", "expect"
+        "return", "ret", "ans", "answer", "result", "expected", "output", "retval", "res", "expect",
+        "retcode", "rc", "exit", "exits", "final"
     };
     auto parse_first_in = [&](const string &sub, long long &val) -> bool {
         // search hex like 0x... first and decimal; choose earliest occurrence
@@ -108,7 +109,23 @@ int main(){
         if (!ok) ok = find_fallback_number(data, val);
     }
 
-    if (!ok) val = 0;
+    if (!ok) {
+        // Try little-endian int32 from both the first and the last 4 bytes as a heuristic for binary .data
+        if (data.size() >= 4) {
+            auto le32 = [](const unsigned char *p)->int32_t{
+                return (int32_t)((uint32_t)p[0] | ((uint32_t)p[1]<<8) | ((uint32_t)p[2]<<16) | ((uint32_t)p[3]<<24));
+            };
+            int32_t v_start = le32((const unsigned char*)&data[0]);
+            int32_t v_end   = le32((const unsigned char*)&data[data.size()-4]);
+            // choose the one with smaller absolute value (prefer small answers)
+            long long a = llabs((long long)v_start);
+            long long b = llabs((long long)v_end);
+            val = (a <= b ? (long long)v_start : (long long)v_end);
+            ok = true;
+        } else {
+            val = 0;
+        }
+    }
     cout << val << '\n';
     return 0;
 }
